@@ -1,76 +1,123 @@
-from fastapi import FastAPI
+from typing import Optional
+
+from fastapi import FastAPI, Path, Query, HTTPException
+from pydantic import BaseModel, Field
+from starlette import status
 
 app = FastAPI()
 
 
+class Book:
+    id: int
+    title: str
+    author: str
+    description: str
+    rating: int
+    published_date: int
 
+    def __init__(self, id, title, author, description, rating, published_date):
+        self.id = id
+        self.title = title
+        self.author = author
+        self.description = description
+        self.rating = rating
+        self.published_date = published_date
+
+
+class BookRequest(BaseModel):
+    id: Optional[int] = Field(title='id is not needed')
+    title: str = Field(min_length=3)
+    author: str = Field(min_length=1)
+    description: str = Field(min_length=1, max_length=100)
+    rating: int = Field(gt=0, lt=6)
+    published_date: int = Field(gt=1999, lt=2031)
+
+    class Config:
+        schema_extra = {
+            'example': {
+                'title': 'A new book',
+                'author': 'codingwithroby',
+                'description': 'A new description of a book',
+                'rating': 5,
+                'published_date': 2029
+            }
+        }
+        ## above is just for refrence fot API Which will show in schema
 
 BOOKS = [
-    {'title': 'Title One', 'author': 'Author One', 'category': 'science'},
-    {'title': 'Title Two', 'author': 'Author Two', 'category': 'science'},
-    {'title': 'Title Three', 'author': 'Author Three', 'category': 'history'},
-    {'title': 'Title Four', 'author': 'Author Four', 'category': 'math'},
-    {'title': 'Title Five', 'author': 'Author Five', 'category': 'math'},
-    {'title': 'Title Six', 'author': 'Author Two', 'category': 'math'}
+    Book(1, 'Computer Science Pro', 'codingwithroby', 'A very nice book!', 5, 2030),
+    Book(2, 'Be Fast with FastAPI', 'codingwithroby', 'A great book!', 5, 2030),
+    Book(3, 'Master Endpoints', 'codingwithroby', 'A awesome book!', 5, 2029),
+    Book(4, 'HP1', 'Author 1', 'Book Description', 2, 2028),
+    Book(5, 'HP2', 'Author 2', 'Book Description', 3, 2027),
+    Book(6, 'HP3', 'Author 3', 'Book Description', 1, 2026)
 ]
 
 
-@app.get("/books")
+
+@app.get("/books", status_code=status.HTTP_200_OK)  #explicitly specifying success status code
 async def read_all_books():
     return BOOKS
 
-# Remember orfer matters in definng Api
 
-@app.get("/books/{book_title}")
-async def read_book(book_title: str):     #paramter api
+@app.get("/books/{book_id}", status_code=status.HTTP_200_OK)
+# path parameter valiadation
+#(book_id: int = Path(gt=0)) valiadation on path ie dyanmanic parameter is implemented  ,// import
+async def read_book(book_id: int = Path(gt=0)):    
     for book in BOOKS:
-        if book.get('title').casefold() == book_title.casefold():
+        if book.id == book_id:
             return book
+    raise HTTPException(status_code=404, detail='Item not found')
 
- 
-@app.get("/books/")     #anything after the path will be as query 
-async def read_category_by_query(category: str):
+
+@app.get("/books/", status_code=status.HTTP_200_OK)   #query api qurey will be read by its qurey name
+# query paramerter validation  (book_rating: int = Query(gt=0, lt=6))
+async def read_book_by_rating(book_rating: int = Query(gt=0, lt=6)):
     books_to_return = []
     for book in BOOKS:
-        if book.get('category').casefold() == category.casefold():
+        if book.rating == book_rating:
             books_to_return.append(book)
     return books_to_return
 
 
-# Get all books from a specific author using path or query parameters
-@app.get("/books/byauthor/")
-async def read_books_by_author_path(author: str):
+@app.get("/books/publish/", status_code=status.HTTP_200_OK)
+async def read_books_by_publish_date(published_date: int = Query(gt=1999, lt=2031)):
     books_to_return = []
     for book in BOOKS:
-        if book.get('author').casefold() == author.casefold():
+        if book.published_date == published_date:
             books_to_return.append(book)
-
     return books_to_return
 
 
-@app.get("/books/{book_author}/")
-async def read_author_category_by_query(book_author: str, category: str):
-    books_to_return = []
-    for book in BOOKS:
-        if book.get('author').casefold() == book_author.casefold() and \
-                book.get('category').casefold() == category.casefold():
-            books_to_return.append(book)
-
-    return books_to_return
+@app.post("/create-book")
+async def create_book(book_request: BookRequest):
+    new_book = Book(**book_request.dict())      #book request object will be converted 
+    BOOKS.append(new_book)
 
 
- 
+def find_book_id(book: Book):
+    book.id = 1 if len(BOOKS) == 0 else BOOKS[-1].id + 1
+    return book  #this fuction will just incresment and override the id 
 
-@app.put("/books/update_book")
-async def update_book(updated_book=Body()):
+
+@app.put("/books/update_book", status_code=status.HTTP_204_NO_CONTENT)
+async def update_book(book: BookRequest):
+    book_changed = False
     for i in range(len(BOOKS)):
-        if BOOKS[i].get('title').casefold() == updated_book.get('title').casefold():
-            BOOKS[i] = updated_book
+        if BOOKS[i].id == book.id:
+            BOOKS[i] = book
+            book_changed = True
+    if not book_changed:
+        raise HTTPException(status_code=404, detail='Item not found')
 
 
-@app.delete("/books/delete_book/{book_title}")
-async def delete_book(book_title: str):
+@app.delete("/books/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_book(book_id: int = Path(gt=0)):
+    book_changed = False
     for i in range(len(BOOKS)):
-        if BOOKS[i].get('title').casefold() == book_title.casefold():
+        if BOOKS[i].id == book_id:
             BOOKS.pop(i)
+            book_changed = True
             break
+    if not book_changed:
+        raise HTTPException(status_code=404, detail='Item not found')
